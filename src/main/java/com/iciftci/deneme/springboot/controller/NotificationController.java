@@ -50,7 +50,7 @@ public class NotificationController {
 
     @PostMapping("/publish")
     public ResponseEntity<String> publish(@RequestBody Notification notification, @RequestParam(required = false) boolean replace) {
-        if(!CHANNEL_PATTERN.matcher(notification.getChannel()).matches()) {
+        if (!CHANNEL_PATTERN.matcher(notification.getChannel()).matches()) {
             return ResponseEntity.badRequest().build();
         }
 
@@ -76,7 +76,7 @@ public class NotificationController {
 
     @GetMapping("/notification/{channel}")
     public List<Notification> getNotifications(@PathVariable("channel") String channel, @RequestParam(defaultValue = "0") int sequence, @RequestParam(required = false) Date after) {
-        if(!CHANNEL_PATTERN.matcher(channel).matches()) {
+        if (!CHANNEL_PATTERN.matcher(channel).matches()) {
             return Collections.emptyList();
         }
 
@@ -88,7 +88,7 @@ public class NotificationController {
 
     @PostMapping("/subscribe")
     public void subscribe(@RequestParam String apiKey, @RequestParam String channel) {
-        if(!CHANNEL_PATTERN.matcher(channel).matches()) {
+        if (!CHANNEL_PATTERN.matcher(channel).matches()) {
             return;
         }
         System.out.println("Subscribed to " + channel);
@@ -97,7 +97,7 @@ public class NotificationController {
 
     @PostMapping("/unsubscribe")
     public void unsubscribe(@RequestParam String apiKey, @RequestParam String channel) {
-        if(!CHANNEL_PATTERN.matcher(channel).matches()) {
+        if (!CHANNEL_PATTERN.matcher(channel).matches()) {
             return;
         }
         subscriptions.remove(channel, apiKey);
@@ -161,13 +161,13 @@ public class NotificationController {
                     }
                 }
             }
+        }
 
-            for (SseEmitter sseEmitter : allEmitters) {
-                try {
-                    sseEmitter.send(message);
-                } catch (IOException e) {
-                    e.printStackTrace();
-                }
+        for (SseEmitter sseEmitter : allEmitters) {
+            try {
+                sseEmitter.send(message);
+            } catch (IOException e) {
+                e.printStackTrace();
             }
         }
     }
