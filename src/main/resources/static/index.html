@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Title</title>
+</head>
+<body>
+<h1>Getting server updates</h1>
+<div id="result"></div>
+
+<div id="notification">
+
+
+</div>
+
+
+<script src="webjars/jquery/3.3.1-1/jquery.min.js"></script>
+<script>
+if(typeof(EventSource) !== "undefined") {
+
+    var showNotifications = function() {
+        $.get('/notification/tur.deneme',
+            {apiKey : "7", sequence: 0},
+            function(returnedData){
+                console.log(returnedData);
+            }
+        );
+
+    };
+
+
+    var source = new EventSource("/connect?apiKey=7");
+    source.onopen = function() {
+         console.log("Connection is open.");
+         $.post('/subscribe',
+            {channel: "tur.deneme", apiKey : "7"},
+            function(returnedData){
+                console.log(returnedData);
+                showNotifications();
+            }
+         );
+    }
+
+
+
+    source.onmessage = function(event) {
+        document.getElementById("result").innerHTML += event.data + "<br>";
+        showNotifications();
+    };
+
+
+} else {
+    document.getElementById("result").innerHTML = "Sorry, your browser does not support server-sent events...";
+}
+
+
+</script>
+</body>
+</html>
