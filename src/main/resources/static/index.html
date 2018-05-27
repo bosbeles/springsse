@@ -8,6 +8,10 @@
 <h1>Getting server updates</h1>
 <div id="result"></div>
 
+<br>
+<hr>
+<br>
+
 <div id="notification">
 
 
@@ -18,11 +22,26 @@
 <script>
 if(typeof(EventSource) !== "undefined") {
 
+    var lastSequence = 0;
+
     var showNotifications = function() {
         $.get('/notification/tur.deneme',
-            {apiKey : "7", sequence: 0},
+            {apiKey : "7", sequence: lastSequence},
             function(returnedData){
                 console.log(returnedData);
+                if(Array.isArray(returnedData)) {
+
+                    var length = returnedData.length;
+                    for(var i=0; i<length; i++) {
+                        document.getElementById("notification").innerHTML += returnedData[i].sequence + "<br>";
+                    }
+
+                    if(length > 0)
+                    {
+                        lastSequence = returnedData[0].sequence;
+                    }
+
+                }
             }
         );
 
