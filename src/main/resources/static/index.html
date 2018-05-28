@@ -17,60 +17,75 @@
 
 </div>
 
+<br>
+<hr>
+<br>
+
+<div id="notificationAll">
+
+
+</div>
 
 <script src="webjars/jquery/3.3.1-1/jquery.min.js"></script>
 <script>
 if(typeof(EventSource) !== "undefined") {
 
-    var lastSequence = 0;
+    var lastDate = null;
 
-    var showNotifications = function() {
-        $.get('/notification/tur.deneme',
-            {apiKey : "7", sequence: lastSequence},
-            function(returnedData){
-                console.log(returnedData);
-                if(Array.isArray(returnedData)) {
-
-                    var length = returnedData.length;
-                    for(var i=0; i<length; i++) {
-                        document.getElementById("notification").innerHTML += returnedData[i].sequence + "<br>";
+    var showNotifications = function(channelName) {
+        if(channelName != null) {
+            $.get('/notifications',
+                {ApiKey : "7", channel: channelName, after: lastDate},
+                function(returnedData){
+                    console.log(returnedData);
+                    if(Array.isArray(returnedData)) {
+                        var length = returnedData.length;
+                        for(var i=0; i<length; i++) {
+                            document.getElementById("notification").innerHTML += returnedData[i].id + "<br>";
+                        }
+                        if(length > 0)
+                        {
+                            lastDate = new Date(returnedData[0].modified).getTime();
+                        }
                     }
-
-                    if(length > 0)
-                    {
-                        lastSequence = returnedData[0].sequence;
-                    }
-
                 }
-            }
-        );
+            );
 
+            $.get('/notifications',
+                {ApiKey : "7", channel: channelName},
+                function(returnedData){
+                    console.log(returnedData);
+                    if(Array.isArray(returnedData)) {
+                        var length = returnedData.length;
+                        document.getElementById("notificationAll").innerHTML = "";
+                        for(var i=0; i<length; i++) {
+                            document.getElementById("notificationAll").innerHTML += returnedData[i].id + "<br>";
+                        }
+                    }
+                }
+            );
+        }
     };
 
 
-    var source = new EventSource("/connect?apiKey=7");
+    var source = new EventSource("/subscribe?ApiKey=7&channel=tur.deneme");
     source.onopen = function() {
          console.log("Connection is open.");
-         $.post('/subscribe',
-            {channel: "tur.deneme", apiKey : "7"},
-            function(returnedData){
-                console.log(returnedData);
-                showNotifications();
-            }
-         );
+         showNotifications("tur.deneme");
     }
 
 
 
     source.onmessage = function(event) {
         document.getElementById("result").innerHTML += event.data + "<br>";
-        showNotifications();
+        showNotifications(event.data);
     };
 
 
 } else {
     document.getElementById("result").innerHTML = "Sorry, your browser does not support server-sent events...";
 }
+
 
 
 </script>

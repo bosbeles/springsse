@@ -15,11 +15,12 @@ import java.util.stream.Collectors;
 
 public interface NotificationRepository extends MongoRepository<Notification, String>, CustomNotificationRepository {
 
-    @Query("{ 'key' : ?0, 'deleted' : false, 'expired' : {$gt : ?1} }")
-    Notification findNotificationByKey(String key, Date after, Sort sort);
+    @Query("{ 'channel' : ?0, 'tag' : ?1, 'state' : 0}")
+    Notification findByTag(String channel, String tag);
+
 
     /*
     @Query("{ {$or: [ {'channel': ?0}, {'channel': {$regex: ?0\\.} } ] }, 'expired' : {$gt : ?1} }")
-    List<Notification> findNotificationByChannel(String channel, Date after, Sort sort);
+    List<Notification> findByChannel(String channel, Date after, Sort sort);
     */
 }

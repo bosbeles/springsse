@@ -7,6 +7,7 @@ import lombok.*;
 import org.springframework.data.annotation.CreatedDate;
 import org.springframework.data.annotation.Id;
 import org.springframework.data.annotation.LastModifiedDate;
+import org.springframework.format.annotation.DateTimeFormat;
 
 import java.util.Date;
 
@@ -15,20 +16,21 @@ import java.util.Date;
 @EqualsAndHashCode(of = {"id"})
 public class Notification {
 
+    public static final int ACTIVE = 0;
+    public static final int DELETED = 1;
+    public static final int EXPIRED = 2;
+
     @Id
     @ApiModelProperty(hidden = true)
     private String id;
 
     private String channel;
 
-    private String key;
+    private String tag;
 
     private Object content;
 
     private int ttl;
-
-    @ApiModelProperty(hidden = true)
-    private long sequence;
 
     @ApiModelProperty(hidden = true)
     private Date created;
@@ -38,9 +40,10 @@ public class Notification {
 
     @ApiModelProperty(hidden = true)
     @LastModifiedDate
+
     private Date modified;
 
     @ApiModelProperty(hidden = true)
-    private boolean deleted;
+    private int state;
 
 }

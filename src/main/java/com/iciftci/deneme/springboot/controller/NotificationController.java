@@ -1,26 +1,28 @@
 package com.iciftci.deneme.springboot.controller;
 
-import com.google.common.base.CharMatcher;
 import com.google.common.collect.MultimapBuilder;
 import com.google.common.collect.Multimaps;
 import com.google.common.collect.SetMultimap;
 import com.iciftci.deneme.springboot.model.Notification;
 import com.iciftci.deneme.springboot.repository.NotificationRepository;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.propertyeditors.CustomDateEditor;
 import org.springframework.data.domain.Sort;
-import org.springframework.http.HttpStatus;
+import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.ResponseEntity;
+import org.springframework.scheduling.annotation.Async;
 import org.springframework.util.StringUtils;
+import org.springframework.web.bind.WebDataBinder;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import javax.servlet.http.HttpServletResponse;
 import java.io.IOException;
+import java.text.SimpleDateFormat;
+import java.time.Instant;
+import java.time.LocalDateTime;
 import java.util.*;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicLong;
-import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
@@ -37,83 +39,108 @@ public class NotificationController {
 
     @Autowired
     private NotificationRepository repository;
-    private SetMultimap<String, SseEmitter> connectedUsers;
-    private SetMultimap<String, String> subscriptions;
-    private Map<String, AtomicLong> counterMap;
+    private SetMultimap<String, SseEmitter> subscriptions;
+
 
     public NotificationController() {
-        connectedUsers = Multimaps.synchronizedSetMultimap(MultimapBuilder.hashKeys().hashSetValues().build());
         subscriptions = Multimaps.synchronizedSetMultimap(MultimapBuilder.hashKeys().hashSetValues().build());
-        counterMap = new ConcurrentHashMap<>();
     }
 
 
-    @PostMapping("/publish")
-    public ResponseEntity<String> publish(@RequestBody Notification notification, @RequestParam(required = false) boolean replace) {
+    @PostMapping("/notifications")
+    public ResponseEntity<Notification> create(@RequestBody Notification notification) {
         if (!CHANNEL_PATTERN.matcher(notification.getChannel()).matches()) {
             return ResponseEntity.badRequest().build();
         }
 
-        Notification old = repository.findNotificationByKey(notification.getKey(), new Date(), new Sort(Sort.Direction.DESC, "sequence"));
+        Notification saved = null;
+        if (!StringUtils.isEmpty(notification.getTag())) {
+            saved = repository.findByTag(notification.getChannel(), notification.getTag());
+        }
+
         // Find according to key
-        if (old != null) {
-            if (replace) {
-                // TODO There may be a race condition while adding
-                old.setDeleted(true);
-                repository.save(old);
-            } else {
-                // Reject this one
-                return new ResponseEntity<String>("id: " + old.getId(), HttpStatus.CONFLICT);
+        if (saved == null) {
+            notification.setCreated(new Date());
+            notification.setExpired(Date.from(notification.getCreated().toInstant().plusSeconds(notification.getTtl())));
+            saved = repository.save(notification);
+        } else {
+            copy(notification, saved);
+        }
+
+        saved = repository.save(saved);
+        emit(saved);
+
+        return ResponseEntity.ok(saved);
+    }
+
+
+    @DeleteMapping("/notifications/{id}")
+    public ResponseEntity<Notification> remove(@PathVariable String id) {
+        Optional<Notification> old = repository.findById(id);
+        if (old.isPresent()) {
+            Notification notification = old.get();
+            notification.setState(Notification.DELETED);
+            Notification saved = repository.save(notification);
+            emit(saved);
+            return ResponseEntity.ok(saved);
+        }
+        return ResponseEntity.notFound().build();
+    }
+
+    @PostMapping("/notifications/{id}")
+    public ResponseEntity<Notification> update(@PathVariable String id, @RequestBody Notification notification) {
+        Optional<Notification> old = repository.findById(id);
+        if (old.isPresent()) {
+            Notification oldNotification = old.get();
+            if (oldNotification.getState() != Notification.DELETED) {
+                copy(notification, oldNotification);
+                Notification saved = repository.save(oldNotification);
+                emit(saved);
+                return ResponseEntity.ok(saved);
             }
         }
 
-        validate(notification);
-        Notification saved = repository.save(notification);
-        emit(saved);
-
-        return ResponseEntity.ok("id: " + saved.getId());
+        return ResponseEntity.notFound().build();
     }
 
-    @GetMapping("/notification/{channel}")
-    public List<Notification> getNotifications(@PathVariable("channel") String channel, @RequestParam(defaultValue = "0") int sequence, @RequestParam(required = false) Date after) {
+
+    @GetMapping("/notifications")
+    public List<Notification> getNotifications(@RequestParam("channel") String channel, @RequestParam(defaultValue = "0") long after) {
+        List<Notification> result = Collections.emptyList();
         if (!CHANNEL_PATTERN.matcher(channel).matches()) {
-            return Collections.emptyList();
+            return result;
+        }
+        //TODO ttl sorgusundan elenen notificationlar modified olmamis olacak.
+
+        if(after == 0) {
+            result = repository.findByChannel(channel, new Date(), new Sort(Sort.Direction.DESC, "modified"));
+        } else {
+            result = repository.findByChannelAfter(channel, new Date(), new Date(after),  new Sort(Sort.Direction.DESC, "modified"));
         }
 
-
-        List<Notification> notifications = repository.findNotificationByChannel(channel, new Date(), new Sort(Sort.Direction.DESC, "sequence"));
-        return notifications.stream().filter(n -> n.getSequence() > sequence && (after == null || n.getCreated().after(after))).collect(Collectors.toList());
+        return result;
     }
 
 
-    @PostMapping("/subscribe")
-    public void subscribe(@RequestParam String apiKey, @RequestParam String channel) {
-        if (!CHANNEL_PATTERN.matcher(channel).matches()) {
-            return;
-        }
-        System.out.println("Subscribed to " + channel);
-        subscriptions.put(channel, apiKey);
-    }
-
-    @PostMapping("/unsubscribe")
-    public void unsubscribe(@RequestParam String apiKey, @RequestParam String channel) {
-        if (!CHANNEL_PATTERN.matcher(channel).matches()) {
-            return;
-        }
-        subscriptions.remove(channel, apiKey);
-    }
-
-
-    @GetMapping("/connect")
-    public SseEmitter connect(@RequestParam(name = "apiKey") final String apiKey, HttpServletResponse response) {
+    @GetMapping("/subscribe")
+    public SseEmitter subscribe(@RequestParam(name = "ApiKey") final String apiKey, final @RequestParam(name = "channel") String[] channels, HttpServletResponse response) {
         System.out.println(apiKey + " connected.");
         response.setHeader("Cache-Control", "no-store");
         final SseEmitter emitter = new SseEmitter(TimeUnit.MINUTES.toMillis(1));
-        connectedUsers.put(apiKey, emitter);
+        for (String channel : channels) {
+            if (CHANNEL_PATTERN.matcher(channel).matches()) {
+                subscriptions.put(channel, emitter);
+            }
+        }
 
         Runnable removeSseEmitter = () -> {
             System.out.println("On termination: " + apiKey);
-            connectedUsers.remove(apiKey, emitter);
+            for (String channel : channels) {
+                if (CHANNEL_PATTERN.matcher(channel).matches()) {
+                    subscriptions.remove(channel, emitter);
+                }
+            }
+
         };
         emitter.onCompletion(removeSseEmitter);
         emitter.onTimeout(removeSseEmitter);
@@ -122,19 +149,12 @@ public class NotificationController {
     }
 
 
-    private void validate(@RequestBody Notification notification) {
-        counterMap.putIfAbsent(notification.getChannel(), new AtomicLong());
-        final long sequence = counterMap.get(notification.getChannel()).incrementAndGet();
-        notification.setSequence(sequence);
-        notification.setCreated(new Date());
-        notification.setExpired(Date.from(notification.getCreated().toInstant().plusSeconds(notification.getTtl())));
-    }
-
+    @Async
     private void emit(Notification notification) {
         // Synchronization
         String channel = notification.getChannel();
-        Object message = "You've got mail.";
-        message = notification;
+        Object message = channel;
+        // message = notification;
 
 
         Set<SseEmitter> allEmitters = new HashSet<>();
@@ -153,13 +173,8 @@ public class NotificationController {
             for (Integer position : positions) {
                 String channelToQuery = channel.substring(0, position);
                 System.out.println("Querying channel: " + channelToQuery);
-                Set<String> apiKeys = subscriptions.get(channelToQuery);
-                for (String apiKey : apiKeys) {
-                    synchronized (connectedUsers) {
-                        Set<SseEmitter> sseEmitters = connectedUsers.get(apiKey);
-                        allEmitters.addAll(sseEmitters);
-                    }
-                }
+                Set<SseEmitter> sseEmitters = subscriptions.get(channelToQuery);
+                allEmitters.addAll(sseEmitters);
             }
         }
 
@@ -168,8 +183,17 @@ public class NotificationController {
                 sseEmitter.send(message);
             } catch (IOException e) {
                 e.printStackTrace();
+                subscriptions.remove(notification.getChannel(), sseEmitter);
             }
         }
+    }
+
+
+    private void copy(Notification source, Notification destination) {
+        destination.setContent(source.getContent());
+        destination.setTag(source.getTag());
+        destination.setTtl(source.getTtl());
+        destination.setExpired(Date.from(Instant.now().plusSeconds(source.getTtl())));
     }
 
 }

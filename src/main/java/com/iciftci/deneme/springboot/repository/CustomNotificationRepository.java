@@ -8,5 +8,7 @@ import java.util.List;
 
 public interface CustomNotificationRepository {
 
-    List<Notification> findNotificationByChannel(String channel, Date after, Sort sort);
+    List<Notification> findByChannel(String channel, Date after, Sort sort);
+
+    List<Notification> findByChannelAfter(String channel, Date expireDate, Date fromDate, Sort sort);
 }
