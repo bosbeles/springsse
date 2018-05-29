@@ -115,7 +115,7 @@ public class NotificationManager {
 
     public SseEmitter subscribe(final String user, final String[] channels) {
 
-        final SseEmitter emitter = new SseEmitter(TimeUnit.MINUTES.toMillis(10));
+        final SseEmitter emitter = new SseEmitter(TimeUnit.MINUTES.toMillis(1));
         for (String channel : channels) {
             if (CHANNEL_PATTERN.matcher(channel).matches()) {
                 subscriptions.put(channel, emitter);
@@ -184,7 +184,12 @@ public class NotificationManager {
                 sseEmitter.send(message);
             } catch (IOException e) {
                 e.printStackTrace();
-                subscriptions.remove(channel, sseEmitter);
+                for (Integer position : positions) {
+                    String channelParts = channel.substring(0, position);
+                    subscriptions.remove(channelParts, sseEmitter);
+
+                }
+
             }
         }
     }

@@ -34,7 +34,7 @@ public class CustomNotificationRepositoryImpl implements CustomNotificationRepos
     @Override
     public List<Notification> findByChannelAfter(String channel, Date expireDate, Date fromDate, Sort sort) {
         Query query = new Query();
-        query.addCriteria(where("state").is(Notification.ACTIVE).andOperator(where("expired").exists(true), where("expired").lte(expireDate)).andOperator(getChannelRegex(channel)));
+        query.addCriteria(where("state").is(Notification.ACTIVE).andOperator(where("expired").exists(true), where("expired").lte(expireDate), getChannelRegex(channel)));
 
         Update update = new Update();
         update.set("state", Notification.EXPIRED);

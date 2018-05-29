@@ -69,7 +69,7 @@
             var l = array.length;
             document.getElementById(div).innerHTML = "";
             for (var i = 0; i < l; i++) {
-                document.getElementById(div).innerHTML += array[i][1].id + "<br>";
+                document.getElementById(div).innerHTML += array[i][1].id + " " + array[i][1].state + "<br>";
             }
         }
 
@@ -112,7 +112,7 @@
                                 if (fresh) {
                                     realTimeNotifications.set(returnedData[i].id, returnedData[i]);
                                 }
-                                document.getElementById("notificationAll").innerHTML += returnedData[i].id + "<br>";
+                                document.getElementById("notificationAll").innerHTML += returnedData[i].id + " " + returnedData[i].state +  "<br>";
                             }
                             if(fresh) {
                                 updatePanel( realTimeNotifications, "notificationReal");
@@ -134,7 +134,7 @@
 
         source.onmessage = function (event) {
             var data = JSON.parse(event.data);
-            document.getElementById("result").innerHTML += data.channel + "<br>";
+            document.getElementById("result").innerHTML += data.channel + " "+  data.id + " " + data.state + "<br>";
             partialShow(data);
             showNotifications(data.channel);
             realTime(realTimeNotifications, data);
