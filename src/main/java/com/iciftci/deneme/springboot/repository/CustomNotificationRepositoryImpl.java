@@ -18,11 +18,13 @@ public class CustomNotificationRepositoryImpl implements CustomNotificationRepos
     @Autowired
     private MongoOperations operations;
 
+
     @Override
     public List<Notification> findByChannel(String channel, Date expireDate, Sort sort) {
         Query query = new Query();
 
-        query.addCriteria(where("state").is(Notification.ACTIVE).and("expired").gt(expireDate).orOperator(where("channel").is(channel), where("channel").regex(channel.replaceAll("\\.", "\\\\.") + "\\.")));
+
+        query.addCriteria(where("state").is(Notification.ACTIVE).andOperator(new Criteria().orOperator(where("expired").exists(false), where("expired").gt(expireDate)), getChannelRegex(channel)));
         query.with(sort);
         List<Notification> notifications = operations.find(query, Notification.class);
 
@@ -32,20 +34,25 @@ public class CustomNotificationRepositoryImpl implements CustomNotificationRepos
     @Override
     public List<Notification> findByChannelAfter(String channel, Date expireDate, Date fromDate, Sort sort) {
         Query query = new Query();
-        query.addCriteria(where("state").is(Notification.ACTIVE).and("expired").lte(expireDate).orOperator(where("channel").is(channel), where("channel").regex(channel.replaceAll("\\.", "\\\\.") + "\\.")));
+        query.addCriteria(where("state").is(Notification.ACTIVE).andOperator(where("expired").exists(true), where("expired").lte(expireDate)).andOperator(getChannelRegex(channel)));
 
         Update update = new Update();
         update.set("state", Notification.EXPIRED);
+        update.set("modified", new Date());
         operations.updateMulti(query, update, Notification.class);
 
 
         query = new Query();
-        query.addCriteria(Criteria.where("modified").gte(fromDate).orOperator(where("channel").is(channel), where("channel").regex(channel.replaceAll("\\.", "\\\\.") + "\\.")));
+        query.addCriteria(Criteria.where("modified").is(fromDate).and("state").is(Notification.EXPIRED).orOperator(where("channel").is(channel), getChannelRegex(channel)));
         query.with(sort);
         List<Notification> notifications = operations.find(query, Notification.class);
 
         return notifications;
 
+    }
+
+    private Criteria getChannelRegex(String channel) {
+        return new Criteria().orOperator(where("channel").is(channel), where("channel").regex(channel.replaceAll("\\.", "\\\\.") + "\\."));
     }
 
 

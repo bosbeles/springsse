@@ -1,14 +1,14 @@
 package com.iciftci.deneme.springboot.model;
 
 
-import com.fasterxml.jackson.annotation.JsonIgnore;
 import io.swagger.annotations.ApiModelProperty;
-import lombok.*;
-import org.springframework.data.annotation.CreatedDate;
+import lombok.Data;
+import lombok.EqualsAndHashCode;
 import org.springframework.data.annotation.Id;
 import org.springframework.data.annotation.LastModifiedDate;
 import org.springframework.format.annotation.DateTimeFormat;
 
+import java.time.LocalDateTime;
 import java.util.Date;
 
 
@@ -40,7 +40,6 @@ public class Notification {
 
     @ApiModelProperty(hidden = true)
     @LastModifiedDate
-
     private Date modified;
 
     @ApiModelProperty(hidden = true)
