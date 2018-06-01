@@ -55,6 +55,16 @@
             <artifactId>jquery</artifactId>
             <version>LATEST</version>
         </dependency>
+        <dependency>
+            <groupId>org.webjars</groupId>
+            <artifactId>toastr</artifactId>
+            <version>LATEST</version>
+        </dependency>
+        <dependency>
+            <groupId>org.webjars</groupId>
+            <artifactId>bootstrap</artifactId>
+            <version>LATEST</version>
+        </dependency>
 
 
     </dependencies>

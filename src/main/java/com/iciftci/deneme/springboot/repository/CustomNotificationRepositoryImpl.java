@@ -6,8 +6,8 @@ import org.springframework.data.domain.Sort;
 import org.springframework.data.mongodb.core.MongoOperations;
 import org.springframework.data.mongodb.core.query.Criteria;
 import org.springframework.data.mongodb.core.query.Query;
-import org.springframework.data.mongodb.core.query.Update;
 
+import java.util.Collection;
 import java.util.Date;
 import java.util.List;
 
@@ -20,39 +20,29 @@ public class CustomNotificationRepositoryImpl implements CustomNotificationRepos
 
 
     @Override
-    public List<Notification> findByChannel(String channel, Date expireDate, Sort sort) {
+    public List<Notification> findByChannels(Collection<String> channels, Date expireDate, Sort sort, boolean recursive) {
         Query query = new Query();
 
 
-        query.addCriteria(where("state").is(Notification.ACTIVE).andOperator(new Criteria().orOperator(where("expired").exists(false), where("expired").gt(expireDate)), getChannelRegex(channel)));
+        query.addCriteria(where("state").is(Notification.ACTIVE).andOperator(new Criteria().orOperator(where("expired").exists(false), where("expired").gt(expireDate)), getChannelRegex(channels, recursive)));
         query.with(sort);
         List<Notification> notifications = operations.find(query, Notification.class);
 
         return notifications;
     }
 
-    @Override
-    public List<Notification> findByChannelAfter(String channel, Date expireDate, Date fromDate, Sort sort) {
-        Query query = new Query();
-        query.addCriteria(where("state").is(Notification.ACTIVE).andOperator(where("expired").exists(true), where("expired").lte(expireDate), getChannelRegex(channel)));
 
-        Update update = new Update();
-        update.set("state", Notification.EXPIRED);
-        update.set("modified", new Date());
-        operations.updateMulti(query, update, Notification.class);
+    private Criteria getChannelRegex(Collection<String> channels, boolean recursive) {
+        Criteria[] inCriteria = new Criteria[recursive ? channels.size() + 1 : 1];
+        inCriteria[0] = where("channel").in(channels);
+        if (recursive) {
+            int i = 1;
+            for (String channel : channels) {
+                inCriteria[i++] = where("channel").regex(channel.replaceAll("\\.", "\\\\.") + "\\.");
+            }
+        }
 
-
-        query = new Query();
-        query.addCriteria(Criteria.where("modified").is(fromDate).and("state").is(Notification.EXPIRED).orOperator(where("channel").is(channel), getChannelRegex(channel)));
-        query.with(sort);
-        List<Notification> notifications = operations.find(query, Notification.class);
-
-        return notifications;
-
-    }
-
-    private Criteria getChannelRegex(String channel) {
-        return new Criteria().orOperator(where("channel").is(channel), where("channel").regex(channel.replaceAll("\\.", "\\\\.") + "\\."));
+        return new Criteria().orOperator(inCriteria);
     }
 
 

@@ -3,142 +3,105 @@
 <head>
     <meta charset="UTF-8">
     <title>Title</title>
+    <link href="webjars/toastr/2.1.2/build/toastr.css" rel="stylesheet"/>
+    <link href="webjars/bootstrap/4.1.0/css/bootstrap.min.css" rel="stylesheet"/>
 </head>
 <body>
-<h1>Channel to be updated</h1>
-<div id="result"></div>
+<p></p>
 
-<br>
-<hr>
-<br>
-
-<p>Partial Refresh</p>
-<div id="notification">
-
-
-</div>
-
-<br>
-<hr>
-<br>
-<p>Clean Refresh</p>
-<div id="notificationAll">
-
-
-</div>
-
-<br>
-<hr>
-<br>
-<p>Real Time</p>
-<div id="notificationReal">
-
-
-</div>
+<button type="button" class="btn btn-primary">
+    Notifications <span id="notification-count" class="badge badge-light"></span>
+</button>
 
 <script src="webjars/jquery/3.3.1-1/jquery.min.js"></script>
+<script src="webjars/toastr/2.1.2/toastr.js"></script>
+
 <script>
     if (typeof(EventSource) !== "undefined") {
-
-        var lastDate = null;
-        var notifications = new Map();
-        var realTimeNotifications = new Map();
-
-
-        var realTime = function (notifications, notification) {
-            if (notification.state != 0) {
-                notifications.delete(notification.id);
-            } else {
-                notifications.set(notification.id, notification);
-            }
+        jQuery.ajaxSettings.traditional = true;
+        var apiKey = "7"
+        var subscriptions = ["tur.deneme", "tur.deneme2"];
+        var url = "/subscribe?ApiKey=" + apiKey;
+        for (var i = 0; i < subscriptions.length; i++) {
+            url += "&channel=" + subscriptions[i];
+        }
+        Array.prototype.extend = function (other_array) {
+            /* you should include a test to check whether other_array really is an array */
+            other_array.forEach(function(v) {this.push(v)}, this);
         }
 
-        var updatePanel = function (notifications, div) {
+        var notifications = new Object();
 
-            var array = Array.from(notifications).sort(function (a, b) {
-                var first = a[1].modified;
-                var second = b[1].modified;
-                if (first < second) {
-                    return -1;
-                } else if (second < first) {
-                    return 1;
-                } else {
-                    return 0;
-                }
-            });
-            var l = array.length;
-            document.getElementById(div).innerHTML = "";
-            for (var i = 0; i < l; i++) {
-                document.getElementById(div).innerHTML += array[i][1].id + " " + array[i][1].state + "<br>";
-            }
-        }
+        var getNotifications = function (channels, recursive) {
+            if (channels != null) {
 
-        var partialShow = function (notification) {
-            if (notification == null)
-                return;
-
-            $.get('/notifications',
-                {ApiKey: "7", channel: notification.channel, after: lastDate},
-                function (returnedData) {
-                    console.log(returnedData);
-                    if (Array.isArray(returnedData)) {
-                        var length = returnedData.length;
-                        for (var i = 0; i < length; i++) {
-                            realTime(notifications, notification);
-                        }
-                        updatePanel(notifications, "notification");
-                        var length = returnedData.length;
-                        if (length > 0) {
-                            lastDate = new Date(returnedData[0].modified).getTime();
-                        }
-                    }
-                }
-            );
-        }
-
-        var showNotifications = function (channelName, fresh) {
-            if (channelName != null) {
                 $.get('/notifications',
-                    {ApiKey: "7", channel: channelName},
+                    {ApiKey: apiKey, channel: channels, recursive: recursive},
                     function (returnedData) {
                         console.log(returnedData);
-                        if (Array.isArray(returnedData)) {
-                            var length = returnedData.length;
-                            document.getElementById("notificationAll").innerHTML = "";
-                            if (fresh) {
-                                realTimeNotifications = new Map();
-                            }
-                            for (var i = 0; i < length; i++) {
-                                if (fresh) {
-                                    realTimeNotifications.set(returnedData[i].id, returnedData[i]);
-                                }
-                                document.getElementById("notificationAll").innerHTML += returnedData[i].id + " " + returnedData[i].state +  "<br>";
-                            }
-                            if(fresh) {
-                                updatePanel( realTimeNotifications, "notificationReal");
+
+                        var oldIds = [];
+
+                        for (var prop in notifications) {
+                            var arr = notifications[prop]
+                            if (Array.isArray(arr)) {
+                                var partialIds = arr.map(function (notification) {
+                                    return notification.id;
+                                })
+                                oldIds.extend(partialIds);
                             }
                         }
+
+                        if (!recursive) {
+                            for (var i = 0; i < channels.length; i++) {
+                                notifications[channels[i]] = returnedData[channels[i]];
+                            }
+                        } else {
+                            notifications = returnedData;
+                        }
+
+                        var newIds = [];
+                        for (var prop in notifications) {
+                            var arr = notifications[prop]
+                            if (Array.isArray(arr)) {
+                                var partialIds = arr.map(function (notification) {
+                                    return notification.id;
+                                })
+                                newIds.extend(partialIds);
+                            }
+                        }
+
+                        var count = 0;
+                        for (var prop in notifications) {
+                            var arr = notifications[prop]
+                            if (Array.isArray(arr)) {
+                                count = count + arr.length;
+                            }
+                        }
+                        $('#notification-count').text(count > 0 ? count : "");
+                        var diff = $(newIds).not(oldIds).get();
+                        if(diff.length > 0) {
+                            toastr.info(diff.length +  ' yeni nesajınız var.');
+                        }
+
+                        // document.getElementById("notificationAll").innerHTML = syntaxHighlight(notifications) + "<br>";
                     }
                 );
             }
         };
 
-
-        var source = new EventSource("/subscribe?ApiKey=7&channel=tur.deneme");
+        var source = new EventSource(url);
         source.onopen = function () {
             console.log("Connection is open.");
-            showNotifications("tur.deneme", true);
-
+            getNotifications(subscriptions, true);
         }
 
 
         source.onmessage = function (event) {
+            console.log(event.data);
             var data = JSON.parse(event.data);
-            document.getElementById("result").innerHTML += data.channel + " "+  data.id + " " + data.state + "<br>";
-            partialShow(data);
-            showNotifications(data.channel);
-            realTime(realTimeNotifications, data);
-            updatePanel(realTimeNotifications, "notificationReal");
+            getNotifications(data, false);
+
         };
 
 

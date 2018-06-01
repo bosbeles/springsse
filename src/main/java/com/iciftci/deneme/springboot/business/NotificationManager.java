@@ -9,16 +9,21 @@ import com.iciftci.deneme.springboot.repository.NotificationRepository;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.domain.Sort;
-import org.springframework.scheduling.annotation.Async;
+import org.springframework.http.MediaType;
+import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
+import org.springframework.util.CollectionUtils;
 import org.springframework.util.StringUtils;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.io.IOException;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
 import java.util.regex.Pattern;
+import java.util.stream.Collectors;
 
 @Service
 @Slf4j
@@ -26,13 +31,16 @@ public class NotificationManager {
 
     private static final Pattern CHANNEL_PATTERN = Pattern.compile("^\\w+(\\.\\w+)+$");
 
+
     @Autowired
     private NotificationRepository repository;
-    private SetMultimap<String, SseEmitter> subscriptions;
+    private SetMultimap<String, Subscription> subscriptions;
+    private Set<String> channelsToBeNotified;
 
 
     public NotificationManager() {
         subscriptions = Multimaps.synchronizedSetMultimap(MultimapBuilder.hashKeys().hashSetValues().build());
+        channelsToBeNotified = ConcurrentHashMap.newKeySet();
     }
 
     public Notification create(Notification notification) {
@@ -48,7 +56,7 @@ public class NotificationManager {
         // Find according to key
         if (saved == null) {
             notification.setCreated(new Date());
-            if(notification.getTtl() > 0) {
+            if (notification.getTtl() > 0) {
                 notification.setExpired(Date.from(notification.getCreated().toInstant().plusSeconds(notification.getTtl())));
             } else {
                 notification.setExpired(null);
@@ -96,18 +104,14 @@ public class NotificationManager {
     }
 
 
-    public List<Notification> getNotifications(String channel, long after) {
+    public List<Notification> getNotifications(String[] channels, boolean recursive) {
         List<Notification> result = Collections.emptyList();
-        if (!CHANNEL_PATTERN.matcher(channel).matches()) {
+        final Set<String> validChannels = Arrays.stream(channels).filter(c -> CHANNEL_PATTERN.matcher(c).matches()).collect(Collectors.toSet());
+        if (validChannels.isEmpty()) {
             return result;
         }
         //TODO ttl sorgusundan elenen notificationlar modified olmamis olacak.
-
-        if (after == 0) {
-            result = repository.findByChannel(channel, new Date(), new Sort(Sort.Direction.DESC, "modified"));
-        } else {
-            result = repository.findByChannelAfter(channel, new Date(), new Date(after), new Sort(Sort.Direction.DESC, "modified"));
-        }
+        result = repository.findByChannels(validChannels, new Date(), new Sort(Sort.Direction.DESC, "modified"), recursive);
 
         return result;
     }
@@ -116,92 +120,95 @@ public class NotificationManager {
     public SseEmitter subscribe(final String user, final String[] channels) {
 
         final SseEmitter emitter = new SseEmitter(TimeUnit.MINUTES.toMillis(1));
-        for (String channel : channels) {
-            if (CHANNEL_PATTERN.matcher(channel).matches()) {
-                subscriptions.put(channel, emitter);
-            }
-        }
+        final Set<String> validChannels = Arrays.stream(channels).filter(c -> CHANNEL_PATTERN.matcher(c).matches()).collect(Collectors.toSet());
+        final Subscription subscription = new Subscription(emitter, validChannels);
+        validChannels.stream().forEach(c -> subscriptions.put(c, subscription));
+        subscription.onClose(() -> {
+            log.info("On termination of user: {} with {} ", user, subscription);
+            subscription.getChannels().stream().forEach(c -> subscriptions.remove(c, subscription));
+        });
 
-        Runnable removeSseEmitter = () -> {
-            log.info("On termination of user: ", user);
-            for (String channel : channels) {
-                if (CHANNEL_PATTERN.matcher(channel).matches()) {
-                    subscriptions.remove(channel, emitter);
-                }
-            }
-        };
-        emitter.onCompletion(removeSseEmitter);
-        emitter.onTimeout(removeSseEmitter);
 
         return emitter;
     }
 
 
-    private void notify(Notification notification) {
+    private void notifyClusters(Object channelList) {
         // send to clusters
     }
 
-    public void onNotify(Object message) {
-        if (message instanceof Notification) {
-            emit((Notification) message);
+    public void onClusterNotified(Object message) {
+        if (message instanceof Set) {
+            channelsToBeNotified.addAll((Set<String>) message);
         }
     }
 
-
-    @Async
     public void emit(Notification notification) {
-        notify(notification);
-
-        String channel = notification.getChannel();
-        emit(channel, notification);
+        channelsToBeNotified.add(notification.getChannel());
     }
 
-
-    private void emit(String channel, Object message) {
-
-        Set<SseEmitter> allEmitters = new HashSet<>();
-
-        // wildcard impl: tur, tur.sgrs, tur.sgrs.alert all listen tur.sgrs.alert
-        List<Integer> positions = new ArrayList<>();
-        for (int i = 0; i < channel.length(); i++) {
-            if (channel.charAt(i) == '.') {
-                positions.add(i);
-            }
+    @Scheduled(fixedDelay = 500)
+    private void emitter() {
+        Instant now = Instant.now();
+        Set<String> channels = new HashSet<>(channelsToBeNotified);
+        channelsToBeNotified.removeAll(channels);
+        notifyClusters(channels);
+        emit(channels);
+        long time = Duration.between(now, Instant.now()).toMillis();
+        if(time > 1000) {
+            log.info("Emit job took {} ms.", time);
         }
-        positions.add(channel.length());
+
+    }
+
+    private void emit(Set<String> channels) {
+
+        Set<String> allPossibleChannels = getAllPossibleChannels(channels);
+        Set<Subscription> allEmitters = new HashSet<>();
 
         synchronized (subscriptions) {
-            for (Integer position : positions) {
-                String channelToQuery = channel.substring(0, position);
-                log.info("Querying channel: {}", channelToQuery);
-                Set<SseEmitter> sseEmitters = subscriptions.get(channelToQuery);
-                allEmitters.addAll(sseEmitters);
+            for (String channelPart : allPossibleChannels) {
+                log.info("Querying channel: {}", channelPart);
+                Set<Subscription> subscriptionsToChannel = subscriptions.get(channelPart);
+                allEmitters.addAll(subscriptionsToChannel);
             }
         }
 
-        for (SseEmitter sseEmitter : allEmitters) {
+        for (Subscription subscription : allEmitters) {
             try {
-                sseEmitter.send(message);
+                Object message = channels.stream().filter(subscription::belongsTo).collect(Collectors.toList());
+                subscription.getEmitter().send(message, MediaType.APPLICATION_JSON);
             } catch (IOException e) {
                 e.printStackTrace();
-                for (Integer position : positions) {
-                    String channelParts = channel.substring(0, position);
-                    subscriptions.remove(channelParts, sseEmitter);
-
-                }
-
+                subscription.close();
             }
         }
+    }
+
+    private Set<String> getAllPossibleChannels(Set<String> channels) {
+        // All possible channel subscriptions to be notified.
+        // e.g. {com.milsoft.turkuaz, com.milsoft.otc} will produce "{com, com.milsoft, com.milsoft.turkuaz, com.milsoft.otc}"
+        return channels.stream().collect(HashSet::new, (set, channel) -> {
+            List<Integer> positions = new ArrayList<>();
+            for (int i = 0; i < channel.length(); i++) {
+                if (channel.charAt(i) == '.') {
+                    positions.add(i);
+                }
+            }
+            positions.add(channel.length());
+            for (Integer position : positions) {
+                set.add(channel.substring(0, position));
+            }
+        }, Collection::addAll);
     }
 
     private void copy(Notification source, Notification destination) {
         destination.setContent(source.getContent());
         destination.setTag(source.getTag());
         destination.setTtl(source.getTtl());
-        if(source.getTtl() > 0) {
+        if (source.getTtl() > 0) {
             destination.setExpired(Date.from(Instant.now().plusSeconds(source.getTtl())));
-        }
-        else {
+        } else {
             destination.setExpired(null);
         }
     }

@@ -9,18 +9,11 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import javax.servlet.http.HttpServletResponse;
 import java.util.List;
-import java.util.regex.Pattern;
+import java.util.Map;
+import java.util.stream.Collectors;
 
 @RestController
 public class NotificationController {
-
-    // TODO
-    // Concurrency
-    // Connection Failure
-    // Scalablity -
-    // Wildcards +
-
-    private static final Pattern CHANNEL_PATTERN = Pattern.compile("^\\w+(\\.\\w+)+$");
 
     @Autowired
     private NotificationManager notificationManager;
@@ -61,9 +54,13 @@ public class NotificationController {
     }
 
 
+    //TODO Channel listesi icin tek query calistirilabilir ya da
+    //ayri query'lerin sonuclari birlestirilebilir (ya da kesişmeyen query'lerin sonuclari birlestirilir)
     @GetMapping("/notifications")
-    public List<Notification> getNotifications(@RequestParam("channel") String channel, @RequestParam(defaultValue = "0") long after) {
-        return notificationManager.getNotifications(channel, after);
+    public Map<String, List<Notification>> getNotifications(@RequestParam("channel") String[] channels, @RequestParam(required = false) boolean recursive) {
+        List<Notification> notifications = notificationManager.getNotifications(channels, recursive);
+        Map<String, List<Notification>> groupedByChannel = notifications.stream().collect(Collectors.groupingBy(Notification::getChannel));
+        return groupedByChannel;
     }
 
 
